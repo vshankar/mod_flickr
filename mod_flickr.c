@@ -8,6 +8,7 @@
 #include "ap_config.h"
 #include "apr_hooks.h"
 #include "apr_hash.h"
+#include "apr_tables.h"
 #include "apr_strings.h"
 #include "apr_time.h"
 
@@ -15,6 +16,8 @@
 #include <curl/easy.h>
 #include <curl/types.h>
 #include "md5.h"
+
+#include "flick.h"
 
 /*
  * mod_flickr
@@ -29,56 +32,25 @@
  */
 
 /*
- * For user credentials.
- * 0. Auth Token
- * 1. API Key
- * 2. Key Secret
- */
-typedef struct {
-	short on_off;
-	apr_hash_t	*user;
-} user_cred;
-
-typedef struct {
-	char *auth_token;
-	char *api_key;
-	char *secret;
-} api_key_secret;
-
-
-/*
- * following is used by the request
- * handler.
+ * The following are initialized by each
+ * child process in the child_init hook.
+ *
+ * They are _strictly_ supposed to be read
+ * only.
  */
 
 typedef struct {
-	char *api_response;		/* 'api_response' is not controlled by apache's */
-	apr_size_t size;		/* MM pool. So we need to de-allocate it using	*/
-} mem_chunk;				/* free()										*/
+	char *nr_display_photos;	/* string rep. of FLICKR_NR_DISPLAY_PHOTOS		*/
+	char *nr_photos_per_call;	/* string rep. of FLICKR_NR_PHOTOS_PER_CALL		*/
+	char *user_id;				/* "user_id" string								*/
+	char *who;					/* who: me ?									*/
+} svr_constants;
 
-
-typedef struct {
-	int page;
-	char *user;
-	mem_chunk mem;			
-	api_key_secret *creds;  
-} page_data;				
-
-#define FLICKR_NR_DISPLAY_PHOTOS		10
-#define FLICKR_NR_PHOTOS_PER_CALL		FLICKR_NR_DISPLAY_PHOTOS * 3
-
-#define	FLICKR_API						"http://api.flickr.com/services/rest/?"
-#define	FLICKR_AUTH_STRING				"api_key=%s&auth_token=%s&api_sig=%s&"
-#define FLICKR_SIGNATURE_STRING			"%sapi_key%sauth_token%smethod%spage%dper_page%duser_idme"
-
-/*
- * Flickr API calls.
- */
-#define	FLICKR_PHOTOS_SEARCH			"flickr.photos.search"
+svr_constants *svr_cfg;
 
 module AP_MODULE_DECLARE_DATA mod_flickr;
 
-/* 
+/*
  * Generate MD5 hash for the string.
  * XXX: Uses request pool to store the
  * generated hash, no need to free().
@@ -86,7 +58,7 @@ module AP_MODULE_DECLARE_DATA mod_flickr;
 static char
 *flickr_md5_gen(apr_pool_t *p, char *str)
 {
-	return MD5_string(p, str);
+        return MD5_string(p, str);
 }
 
 /*
@@ -94,42 +66,91 @@ static char
  * which the hash has to be calculated.
  */
 static char
-*flickr_signature_string(apr_pool_t *p, page_data *pg,
-										char *method)
+*flickr_signature_string(apr_pool_t *p, page_data *pg)
 {
-	return (apr_psprintf(p, FLICKR_SIGNATURE_STRING,
-								pg->creds->secret,
-								pg->creds->api_key,
-								pg->creds->auth_token,
-								method,
-								pg->page,
-								FLICKR_NR_PHOTOS_PER_CALL));
-								
+        return (apr_psprintf(p, FLICKR_SIGNATURE_STRING,
+										SECRET(pg),
+										APIKEY(pg),
+										AUTHTKN(pg),
+										RAWSIGN(pg)));
 }
 
 /*
  * Prepare the Auth part of the API call.
  */
 static char
-*flickr_auth_string(apr_pool_t *p, char *hash, api_key_secret *cred)
+*flickr_auth_string(apr_pool_t *p, char *hash, page_data *pg)
 {
-	return (apr_psprintf(p, FLICKR_AUTH_STRING,
-								cred->api_key,
-								cred->auth_token,
-								hash));
+        return (apr_psprintf(p, FLICKR_AUTH_STRING,
+										APIKEY(pg),
+										AUTHTKN(pg),
+										hash,
+										RAWARGS(pg)));
 }
 
 /*
- * Prepare the method part and the 
- * parameter part of the API call.
+ * duuplicate the string in a given
+ * memory pool.
  */
-static char
-*flickr_api_params(apr_pool_t *p, char *method, int page)
+
+static char 
+*flickr_dup_string(apr_pool_t *p, char *s)
 {
-	return (apr_psprintf(p, "method=%s&per_page=%d&page=%d&user_id=me",
-							method,
-							FLICKR_NR_PHOTOS_PER_CALL,
-							page));
+	return apr_pstrdup(p, s);
+}
+
+#define	DUP(p,s)		flickr_dup_string(p,s)
+#define ATS(m,k,v)		apr_table_setn(m, k, v)
+#define ATSD(p,m,k,v)	apr_table_setn(m, DUP(p, k), DUP(p,v))
+#define ATSKD(p,m,k,v)	apr_table_setn(m, DUP(p, k), v)
+#define ATSVD(p,m,k,v)	apr_table_setn(m, k, DUP(p,v))
+
+static int
+add_length(void *tbl, char *key, char *value)
+{
+	table_stat *t = (table_stat *) tbl;
+
+	t->args_len += strlen(key) + strlen(value);
+	t->nr_iterations++;
+	
+	return 1;
+}
+
+static int
+flatten_table(void *data, char *key, char *value)
+{
+	page_data *pg = (page_data *) data;
+
+	memcpy(SIGOFFT(pg), key, strlen(key));
+	pg->offset_t += strlen(key);
+
+	memcpy(SIGOFFT(pg), value, strlen(value));
+	pg->offset_t += strlen(value);
+
+	return 1;
+}
+
+static int
+flatten_table_for_args(void *data, char *key, char *value)
+{
+	page_data *pg = (page_data *) data;
+
+	memcpy(ARGOFFT(pg), key, strlen(key));
+	pg->offset_t += strlen(key);
+
+	memcpy(ARGOFFT(pg), "=", 1);
+	pg->offset_t++;
+
+	memcpy(ARGOFFT(pg), value, strlen(value));
+	pg->offset_t += strlen(value);
+
+	pg->iterations--;
+	if (pg->iterations) {
+		memcpy(ARGOFFT(pg), "&", 1);
+		pg->offset_t++;
+	}
+
+	return 1;
 }
 
 /* ---------------- cURL invocation routines here. ------------- */
@@ -231,7 +252,7 @@ parse_request(request_rec *r, page_data *pg, user_cred *uc)
 	if (!pg->creds)
 		return 0;
 
-	pg->page = atoi(page);
+	pg->page = page;
 	pg->user = uname;
 	
 	return 1;
@@ -316,8 +337,6 @@ static const command_rec module_cmds[] = {
 static int
 flickr_handler(request_rec *r)
 {
-	char *api, *hash;
-
 	if (!r->handler || strcmp(r->handler, "flickr-handler") != 0)
 		return DECLINED;
 
@@ -337,14 +356,42 @@ flickr_handler(request_rec *r)
 		return DECLINED;
 	}
 
-	hash = flickr_md5_gen(r->pool, flickr_signature_string(r->pool,
-											pg,
-											FLICKR_PHOTOS_SEARCH));
+	char *api, *hash;
+	table_stat ts = {0,0};
 
-	api = apr_pstrcat(r->pool, FLICKR_API,
-						flickr_auth_string(r->pool, hash, pg->creds),
-						flickr_api_params(r->pool, FLICKR_PHOTOS_SEARCH, pg->page),
-						NULL);
+	apr_table_t *method_args = apr_table_make(r->pool, 3); 
+
+	/*
+	 * Fill the table with the method
+	 * arguments.
+	 */
+	ATSD(r->pool,method_args,"method","flickr.photos.search");
+	ATSKD(r->pool,method_args,"page",pg->page);
+	ATSKD(r->pool,method_args,"per_page",svr_cfg->nr_photos_per_call);
+	ATS(method_args,svr_cfg->user_id,svr_cfg->who);
+
+	/*
+	 * compute the length of the buffer
+	 * needed to hold the string and the
+	 * number of interations;
+	 */
+	apr_table_do(add_length, &ts, method_args, NULL);
+	pg->raw_signature = apr_pcalloc(r->pool, ts.args_len);
+	pg->offset_t = 0;
+
+	/*
+	 * flatten the key value pair and
+	 * calculate the MD5 hash.
+	 */
+	apr_table_do(flatten_table, pg, method_args, NULL);
+	hash = flickr_md5_gen(r->pool, flickr_signature_string(r->pool, pg));
+
+	pg->offset_t = 0;
+	pg->iterations = ts.nr_iterations;
+	pg->raw_args = apr_pcalloc(r->pool, SIG2ARG(ts));
+	apr_table_do(flatten_table_for_args, pg, method_args, NULL);
+
+	api = flickr_auth_string(r->pool, hash, pg);
 
 #ifdef DEBUG
 	ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
@@ -367,10 +414,27 @@ flickr_handler(request_rec *r)
 	return OK;
 }
 
+/*
+ * child init hook
+ */
+static void
+flickr_child_init(apr_pool_t *pchild, server_rec *s)
+{
+	svr_cfg = apr_pcalloc(pchild, sizeof(svr_constants));
+
+	svr_cfg->nr_display_photos  = apr_itoa(pchild,
+										   FLICKR_NR_DISPLAY_PHOTOS);
+	svr_cfg->nr_photos_per_call = apr_itoa(pchild,
+										   FLICKR_NR_PHOTOS_PER_CALL);
+	svr_cfg->user_id 			= apr_pstrdup(pchild, "user_id");
+	svr_cfg->who				= apr_pstrdup(pchild, "me"); 
+}
+
 static void
 register_hooks(apr_pool_t *p)
 {
 	ap_hook_handler(flickr_handler, NULL, NULL, APR_HOOK_MIDDLE);
+	ap_hook_child_init(flickr_child_init, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
 module AP_MODULE_DECLARE_DATA mod_flickr = {
