@@ -1,4 +1,42 @@
-Apache module for flickr access.
-Needs the API key and shared secret.
+  Apache module for flickr access.
+  Needs the API key and shared secret.
+
+  API call:
+	http://www.whatsoever.com/<username>/<page>
+
+  where <username> is the username of the configured user in the httpd configuration file (See CONFIGURATION)
+	    <page> is the page number for the requested photos.
+
+  mod_flickr returns metadata for 30 photos per call (i.e. per page) which is currently not configurable.
+  (unless you change the code and recompile it, which you are most welcome to do.). The call needs to be
+  made using AJAX from the frontend (for better user experience). Also frontend need to process the XML
+  returned and consturct the thumbnal URL. (code not yet written yet but is trivial for any JS/AJAX prorammer).
+
+  1. INSTALLATION
+        mod_flickr needs libcurl and any *nix/*BSD system. You may need to edit the paths in the 'Makefile' (INCLDIR/LIBDIR) to specify the include and the library
+        paths for libcurl includes and shared library. (need to provide `configure' script for this, later)
+
+        % make all      # make sure `apxs' is in $PATH else edit the Makefile giving the full path for `apxs'
+
+  2. CONFIGURATION
+
+  *Apache configuration entries (httpd.conf)
+
+	LoadModule mod_flickr   libexec/apache22/mod_flickr.so		# see apache manuals on how to load DSO's.
+
+	FlickrMod       On
+	FlickrUser      vshankar
+	FlickrKey       vshankar xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+	FlickrSecret    vshankar xxxxxxxxxxxxxxx
+	FlickrAuth      vshankar xxxxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxx 
+
+	The above config. is for a single user. Likewise more than one user can be configured provided you have their credentials. (for e.g. you can have 2-3 flickr  	accouts	and configure and use the name in the URL to get their respective photos)
+
+  3. TODO
+	Displaying "interesting" photos.
+	Photo set for the user.
+	Handle upload/view photos for a perticular photo set.
+	Support for flickr blogs etc...
+
 
 
