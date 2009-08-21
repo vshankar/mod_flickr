@@ -7,7 +7,7 @@ LIBDIR = -L/usr/local/lib
 
 LIBS = -lcurl
 
-all: mod_flickr.c md5.h
+all: mod_flickr.c md5.h flick.h
 	${APXS} -ci -n ${HANDLER} ${INCLDIR} ${LIBDIR} mod_flickr.c ${LIBS}
 
 clean:
