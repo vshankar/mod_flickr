@@ -113,10 +113,10 @@ static char
 /* These macros are crocky !!! */
 #define	DUP(p,s)		flickr_dup_string(p,s)
 
-#define	APIENTRY(p,h,k,v)	apr_hash_set(h,\
-									 DUP(p,k),\
-									 APR_HASH_KEY_STRING,\
-									 v)
+#define	APIENTRY(k,v)	apr_hash_set(svr_cfg->api_call_table,	\
+									 		DUP(pchild,k),		\
+									 		APR_HASH_KEY_STRING,\
+											v)
 #define	APIGET(h,k)		apr_hash_get(h, k,\
 									 APR_HASH_KEY_STRING)
 											
@@ -357,6 +357,56 @@ static const command_rec module_cmds[] = {
 	{NULL} 
 };
 
+/* 
+ * Arg. manipulation and hash generation
+ * macros for APIs.
+ *
+ * These are used in 
+ * every API that is written, so declaring
+ * macros for them is a good option.
+ */
+
+
+/*
+ * macro to compute the length of the buffer
+ * needed to hold the string and the number
+ * of interations;
+ */
+
+#define	GENHASHSTRING(r,pg,ts,m) \
+				do { \
+					apr_table_do(add_length, &ts, m, NULL);						\
+					pg->raw_signature = apr_pcalloc(r->pool, ts.args_len + 1);	\
+					*(pg->raw_signature + ts.args_len) = '\0';					\
+					pg->offset_t = 0;											\	
+				} while(0);
+/*
+ * flatten the signature string and
+ * generate the MD5 hash from it.
+ */
+#define GENHASH(r,pg,m,h) \
+				do { \
+					apr_table_do(flatten_table, pg, m, NULL);							\
+					h = flickr_md5_gen(r->pool, flickr_signature_string(r->pool, pg));	\
+				} while(0);
+
+/*
+ * macros to generate the argument
+ * list from the argument table.
+ */
+#define GENARGSTRING(r,pg,ts,m) \
+				do { \
+					pg->offset_t = 0;											\
+					pg->iterations = ts.nr_iterations;							\
+					pg->raw_args = apr_pcalloc(r->pool, SIG2ARG(ts) + 1);		\
+					*(pg->raw_args + SIG2ARG(ts)) = '\0';						\
+					apr_table_do(flatten_table_for_args, pg, m, NULL);			\
+				} while(0);
+
+#define GETDATA(pg, a)	flickr_request_data(&pg->mem, a);
+#define DATA(pg)		pg->mem.api_response
+											
+
 /* ----------------------------------------------------------- */
 /*						API CALL ROUTINES					   */
 
@@ -378,37 +428,60 @@ flickr_get_my_photos(request_rec *r, page_data *pg)
 	ATSKD(r->pool,method_args,"per_page",svr_cfg->nr_photos_per_call);
 	ATS(method_args,svr_cfg->user_id,svr_cfg->who);
 
-	/*
-	 * compute the length of the buffer
-	 * needed to hold the string and the
-	 * number of interations;
-	 */
-	apr_table_do(add_length, &ts, method_args, NULL);
-	pg->raw_signature = apr_pcalloc(r->pool, ts.args_len);
-	pg->offset_t = 0;
-
-	/*
-	 * flatten the key value pair and
-	 * calculate the MD5 hash.
-	 */
-	apr_table_do(flatten_table, pg, method_args, NULL);
-	hash = flickr_md5_gen(r->pool, flickr_signature_string(r->pool, pg));
-
-	pg->offset_t = 0;
-	pg->iterations = ts.nr_iterations;
-	pg->raw_args = apr_pcalloc(r->pool, SIG2ARG(ts));
-	apr_table_do(flatten_table_for_args, pg, method_args, NULL);
+	GENHASHSTRING(r, pg, ts, method_args);
+	GENHASH(r, pg, method_args, hash);
+	GENARGSTRING(r, pg, ts, method_args);
 
 	api = flickr_auth_string(r->pool, hash, pg);
 
 #ifdef DEBUG
 	ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
-				"API: %s", api);
+				"API: %s, child pid: %d", api, getpid());
 #endif
 
-	flickr_request_data(&pg->mem, api);
+	GETDATA(pg, api);
 
-	if (pg->mem.api_response) {
+	if (DATA(pg)) {
+		apr_pool_cleanup_register(r->pool, pg->mem.api_response,
+									      free,
+										  apr_pool_cleanup_null);
+
+		return FLICKR_STATUS_OK;
+	}
+
+	return FLICKR_STATUS_ERR;
+}
+
+/*
+ * get users photosets.
+ */
+static int
+flickr_get_my_sets(request_rec *r, page_data *pg)
+{
+	char *api, *hash;
+	table_stat ts = {0,0};
+
+	apr_table_t *method_args = apr_table_make(r->pool, 3); 
+
+	/*
+	 * Fill the table with the method
+	 * arguments.
+	 */
+	ATSD(r->pool,method_args,"method","flickr.photosets.getList");
+	GENHASHSTRING(r, pg, ts, method_args);
+	GENHASH(r, pg, method_args, hash);
+	GENARGSTRING(r, pg, ts, method_args);
+
+	api = flickr_auth_string(r->pool, hash, pg);
+
+#ifdef DEBUG
+	ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+				"API: %s, child pid: %d", api, getpid());
+#endif
+
+	GETDATA(pg, api);
+
+	if (DATA(pg)) {
 		apr_pool_cleanup_register(r->pool, pg->mem.api_response,
 									      free,
 										  apr_pool_cleanup_null);
@@ -452,18 +525,20 @@ flickr_handler(request_rec *r)
 
 		if ((*fn) (r, pg)) {
 			ap_set_content_type(r, "application/xml");
-			ap_rputs(pg->mem.api_response, r);
+			ap_rputs(DATA(pg), r);
+			return OK;
 		} else {
 			ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
 						"API call for [%s] failed to get data !!!",
 						APINAM(pg));
+			return HTTP_INTERNAL_SERVER_ERROR;
 		}
 	} else {
 		ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
 					"API entry for call: [%s] missing !!!",
 					APINAM(pg));
+		return HTTP_NOT_FOUND;
 	}
-	return OK;
 }
 
 /*
@@ -486,9 +561,8 @@ flickr_child_init(apr_pool_t *pchild, server_rec *s)
 
 	/* API call entries. */
 	{
-		APIENTRY(pchild, svr_cfg->api_call_table,
-								"getMyPhotos",
-								flickr_get_my_photos);
+		APIENTRY("getMyPhotos", flickr_get_my_photos);
+		APIENTRY("getMySets",	flickr_get_my_sets);
 	}
 }
 
