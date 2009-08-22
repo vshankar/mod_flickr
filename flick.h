@@ -14,6 +14,12 @@
 #define FLICKR_SIGNATURE_STRING			"%sapi_key%sauth_token%s%s"
 
 /*
+ * return type constants.
+ */
+#define	FLICKR_STATUS_OK	1
+#define	FLICKR_STATUS_ERR	0
+
+/*
  * Flickr API calls.
  */
 #define	FLICKR_PHOTOS_SEARCH			"flickr.photos.search"
@@ -23,6 +29,10 @@ typedef struct {
 	int nr_iterations;
 } table_stat;
 
+/*
+ * macro to convert signature length
+ * into api call argument length.
+ */
 #define SIG2ARG(s) \
 	s.args_len + (s.nr_iterations * 2) - 1
 
@@ -57,6 +67,7 @@ typedef struct {
 typedef struct {
 	char *page;
 	char *user;
+	char *api_call;
 	mem_chunk mem;			
 	char *raw_args;
 	char *raw_signature;
@@ -67,6 +78,7 @@ typedef struct {
 
 
 /* macros for accessing page data */
+#define APINAM(pg)	pg->api_call
 #define	SECRET(pg)	pg->creds->secret
 #define	APIKEY(pg)	pg->creds->api_key
 #define	AUTHTKN(pg)	pg->creds->auth_token

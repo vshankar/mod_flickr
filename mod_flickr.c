@@ -44,11 +44,22 @@ typedef struct {
 	char *nr_photos_per_call;	/* string rep. of FLICKR_NR_PHOTOS_PER_CALL		*/
 	char *user_id;				/* "user_id" string								*/
 	char *who;					/* who: me ?									*/
+
+	/*
+	 * this hash contains the api
+	 * name as the key and a pointer
+	 * to the function that implements
+	 * the API as the value.
+	 */
+	apr_hash_t *api_call_table;
 } svr_constants;
 
 svr_constants *svr_cfg;
 
 module AP_MODULE_DECLARE_DATA mod_flickr;
+
+/* --------------------------------------------------------- */
+/*						HELPER ROUTINES						 */
 
 /*
  * Generate MD5 hash for the string.
@@ -99,7 +110,16 @@ static char
 	return apr_pstrdup(p, s);
 }
 
+/* These macros are crocky !!! */
 #define	DUP(p,s)		flickr_dup_string(p,s)
+
+#define	APIENTRY(p,h,k,v)	apr_hash_set(h,\
+									 DUP(p,k),\
+									 APR_HASH_KEY_STRING,\
+									 v)
+#define	APIGET(h,k)		apr_hash_get(h, k,\
+									 APR_HASH_KEY_STRING)
+											
 #define ATS(m,k,v)		apr_table_setn(m, k, v)
 #define ATSD(p,m,k,v)	apr_table_setn(m, DUP(p, k), DUP(p,v))
 #define ATSKD(p,m,k,v)	apr_table_setn(m, DUP(p, k), v)
@@ -152,6 +172,8 @@ flatten_table_for_args(void *data, char *key, char *value)
 
 	return 1;
 }
+
+/* ------------------------------------------------------------- */
 
 /* ---------------- cURL invocation routines here. ------------- */
 
@@ -228,33 +250,33 @@ static void
  * Parse the request URI into username and album.
  * Create the flickr resource if the username has
  * creds given in the httpd conf file.
+ * TODO: Improve this routine.
  */
 static int
 parse_request(request_rec *r, page_data *pg, user_cred *uc)
 {
 	char *request = apr_pstrdup(r->pool, r->unparsed_uri);
 
-	char *uname, *page;
-
-	if (!(uname = strchr(request + 1, '/')))
+	if (!(pg->user = strchr(request + 1, '/')))
 		return 0;
 
-	*uname = '\0';
-	uname++;
+	*(pg->user) = '\0';
+	pg->user++;
 
-	if ((page = strchr(uname, '/'))) {
-		*page = '\0';
-		page++;
+	if (!(pg->api_call = strchr(pg->user, '/')))
+		return 0;
+
+	*(pg->api_call) = '\0';
+	pg->api_call ++;
+
+	if (!(pg->creds = (api_key_secret *) get_user(uc, pg->user)))
+		return 0;
+
+	if ((pg->page = strchr(pg->api_call, '/'))) {
+		*(pg->page) = '\0';
+		pg->page++;
 	}
 
-	pg->creds = (api_key_secret *) get_user(uc, uname);
-
-	if (!pg->creds)
-		return 0;
-
-	pg->page = page;
-	pg->user = uname;
-	
 	return 1;
 }
 
@@ -317,6 +339,7 @@ static char
 	return NULL;
 }
 
+
 static const command_rec module_cmds[] = {
 	AP_INIT_FLAG("FlickrMod", flickr_set_on_off, NULL, RSRC_CONF,
 				"Enables/Disables the flickr module"),
@@ -334,28 +357,13 @@ static const command_rec module_cmds[] = {
 	{NULL} 
 };
 
+/* ----------------------------------------------------------- */
+/*						API CALL ROUTINES					   */
+
+/* get photos for the user. */
 static int
-flickr_handler(request_rec *r)
+flickr_get_my_photos(request_rec *r, page_data *pg)
 {
-	if (!r->handler || strcmp(r->handler, "flickr-handler") != 0)
-		return DECLINED;
-
-	user_cred *uc = ap_get_module_config(r->server->module_config,
-										&mod_flickr);
-
-	if (!uc->on_off)
-		return DECLINED;
-
-	page_data *pg = apr_pcalloc(r->pool, sizeof(page_data));
-
-	if (!parse_request(r, pg, uc)) {
-#ifdef DEBUG
-		ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
-					"User not found!!!");
-#endif
-		return DECLINED;
-	}
-
 	char *api, *hash;
 	table_stat ts = {0,0};
 
@@ -401,16 +409,60 @@ flickr_handler(request_rec *r)
 	flickr_request_data(&pg->mem, api);
 
 	if (pg->mem.api_response) {
-
-		/* register cleanup with the pool. */
 		apr_pool_cleanup_register(r->pool, pg->mem.api_response,
 									      free,
 										  apr_pool_cleanup_null);
 
-		ap_set_content_type(r, "application/xml");
-		ap_rputs(pg->mem.api_response, r);
+		return FLICKR_STATUS_OK;
 	}
 
+	return FLICKR_STATUS_ERR;
+}
+
+/* ----------------------------------------------------------- */
+
+/*
+ * Flickr URL handler
+ */
+static int
+flickr_handler(request_rec *r)
+{
+	if (!r->handler || strcmp(r->handler, "flickr-handler") != 0)
+		return DECLINED;
+
+	user_cred *uc = ap_get_module_config(r->server->module_config,
+										&mod_flickr);
+
+	if (!uc->on_off)
+		return DECLINED;
+
+	page_data *pg = apr_pcalloc(r->pool, sizeof(page_data));
+
+	if (!parse_request(r, pg, uc)) {
+#ifdef DEBUG
+		ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+					"User/api name invalid!!!");
+#endif
+		return DECLINED;
+	}
+
+	int (*fn) (request_rec *, page_data *);
+
+	if ( (fn = APIGET(svr_cfg->api_call_table, APINAM(pg))) ) {
+
+		if ((*fn) (r, pg)) {
+			ap_set_content_type(r, "application/xml");
+			ap_rputs(pg->mem.api_response, r);
+		} else {
+			ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+						"API call for [%s] failed to get data !!!",
+						APINAM(pg));
+		}
+	} else {
+		ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+					"API entry for call: [%s] missing !!!",
+					APINAM(pg));
+	}
 	return OK;
 }
 
@@ -428,6 +480,16 @@ flickr_child_init(apr_pool_t *pchild, server_rec *s)
 										   FLICKR_NR_PHOTOS_PER_CALL);
 	svr_cfg->user_id 			= apr_pstrdup(pchild, "user_id");
 	svr_cfg->who				= apr_pstrdup(pchild, "me"); 
+
+	/* initialize the API call table. */
+	svr_cfg->api_call_table = apr_hash_make(pchild);
+
+	/* API call entries. */
+	{
+		APIENTRY(pchild, svr_cfg->api_call_table,
+								"getMyPhotos",
+								flickr_get_my_photos);
+	}
 }
 
 static void
