@@ -173,6 +173,35 @@ flatten_table_for_args(void *data, char *key, char *value)
 	return 1;
 }
 
+static int
+flickr_get_xtra_params(page_data *pg, char **arena,
+									  int nargs)
+{
+	int i = 0;
+	char *temp;
+
+	for (; i < nargs - 1; i++) {
+		if (!pg->uri_len)
+			return 0;
+
+		if (!(arena[i] = strchr(pg->my_uri, '/')))
+			return 0;
+
+		*(arena[i]) = '\0';
+		arena[i]++;
+
+		temp = arena[i];
+		arena[i] = pg->my_uri;
+		pg->my_uri = temp;
+
+		pg->uri_len -= (strlen(arena[i]) + 1);
+	}
+
+	arena[i] = pg->my_uri;
+
+	return 1;
+}
+
 /* ------------------------------------------------------------- */
 
 /* ---------------- cURL invocation routines here. ------------- */
@@ -255,27 +284,47 @@ static void
 static int
 parse_request(request_rec *r, page_data *pg, user_cred *uc)
 {
-	char *request = apr_pstrdup(r->pool, r->unparsed_uri);
+	pg->uri_len = strlen(r->unparsed_uri);
 
-	if (!(pg->user = strchr(request + 1, '/')))
+	if (r->unparsed_uri[pg->uri_len - 1] != '/') {
+		pg->my_uri = apr_pstrdup(r->pool,
+									apr_pstrcat(r->pool,
+												r->unparsed_uri, "/",
+												NULL));
+		pg->uri_len++;
+	} else {
+		pg->my_uri = apr_pstrdup(r->pool, r->unparsed_uri);
+	}
+
+	if (!(pg->user = strchr(pg->my_uri + 1, '/')))
 		return 0;
 
 	*(pg->user) = '\0';
 	pg->user++;
 
+	pg->uri_len -= 8;
+
 	if (!(pg->api_call = strchr(pg->user, '/')))
 		return 0;
 
 	*(pg->api_call) = '\0';
-	pg->api_call ++;
+	pg->api_call++;
 
 	if (!(pg->creds = (api_key_secret *) get_user(uc, pg->user)))
 		return 0;
 
-	if ((pg->page = strchr(pg->api_call, '/'))) {
-		*(pg->page) = '\0';
-		pg->page++;
-	}
+	pg->uri_len -= (strlen(pg->user) + 1);
+
+	if (!(pg->my_uri = strchr(pg->api_call, '/')))
+		return 0;
+
+	*(pg->my_uri) = '\0';
+	pg->my_uri++;
+
+	pg->uri_len -= (strlen(pg->api_call) + 1);
+
+	pg->my_uri[pg->uri_len - 1] = '\0';
+	pg->uri_len--;
 
 	return 1;
 }
@@ -403,12 +452,22 @@ static const command_rec module_cmds[] = {
 					apr_table_do(flatten_table_for_args, pg, m, NULL);			\
 				} while(0);
 
-#define GETDATA(pg, a)	flickr_request_data(&pg->mem, a);
+#define GETDATA(pg,a)	flickr_request_data(&pg->mem, a);
 #define DATA(pg)		pg->mem.api_response
 											
 
 /* ----------------------------------------------------------- */
 /*						API CALL ROUTINES					   */
+/* Rules:													   */
+/* 0. Use the above macros for simplicity.					   */
+/* 1. If you need only 1 param from the uri					   */
+/*    use my_uri from page_data directly.					   */
+/* 2. Else call the param split routine to					   */
+/*	  get the individual params.							   */
+/* 3. Return one of the two flickr status					   */
+/*	  constants defined in flick.h							   */	
+/* ----------------------------------------------------------- */
+
 
 /* get photos for the user. */
 static int
@@ -424,7 +483,7 @@ flickr_get_my_photos(request_rec *r, page_data *pg)
 	 * arguments.
 	 */
 	ATSD(r->pool,method_args,"method","flickr.photos.search");
-	ATSKD(r->pool,method_args,"page",pg->page);
+	ATSKD(r->pool,method_args,"page",pg->my_uri);
 	ATSKD(r->pool,method_args,"per_page",svr_cfg->nr_photos_per_call);
 	ATS(method_args,svr_cfg->user_id,svr_cfg->who);
 
@@ -463,11 +522,90 @@ flickr_get_my_sets(request_rec *r, page_data *pg)
 
 	apr_table_t *method_args = apr_table_make(r->pool, 3); 
 
-	/*
-	 * Fill the table with the method
-	 * arguments.
-	 */
 	ATSD(r->pool,method_args,"method","flickr.photosets.getList");
+	GENHASHSTRING(r, pg, ts, method_args);
+	GENHASH(r, pg, method_args, hash);
+	GENARGSTRING(r, pg, ts, method_args);
+
+	api = flickr_auth_string(r->pool, hash, pg);
+
+#ifdef DEBUG
+	ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+				"API: %s, child pid: %d", api, getpid());
+#endif
+
+	GETDATA(pg, api);
+
+	if (DATA(pg)) {
+		apr_pool_cleanup_register(r->pool, pg->mem.api_response,
+									      free,
+										  apr_pool_cleanup_null);
+
+		return FLICKR_STATUS_OK;
+	}
+
+	return FLICKR_STATUS_ERR;
+}
+
+static int
+flickr_get_recent_photos(request_rec *r, page_data *pg)
+{
+	char *api, *hash;
+	table_stat ts = {0,0};
+
+	apr_table_t *method_args = apr_table_make(r->pool, 3); 
+
+	ATSD(r->pool,method_args,"method","flickr.photos.getRecent");
+	ATSKD(r->pool,method_args,"page",pg->my_uri);
+	ATSKD(r->pool,method_args,"per_page",svr_cfg->nr_photos_per_call);
+
+	GENHASHSTRING(r, pg, ts, method_args);
+	GENHASH(r, pg, method_args, hash);
+	GENARGSTRING(r, pg, ts, method_args);
+
+	api = flickr_auth_string(r->pool, hash, pg);
+
+#ifdef DEBUG
+	ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+				"API: %s, child pid: %d", api, getpid());
+#endif
+
+	GETDATA(pg, api);
+
+	if (DATA(pg)) {
+		apr_pool_cleanup_register(r->pool, pg->mem.api_response,
+									      free,
+										  apr_pool_cleanup_null);
+
+		return FLICKR_STATUS_OK;
+	}
+
+	return FLICKR_STATUS_ERR;
+}
+
+static int
+flickr_get_photos_in_set(request_rec *r, page_data *pg)
+{
+	char *api, *hash;
+	char *xtra_params[2];
+	table_stat ts = {0,0};
+
+	apr_table_t *method_args = apr_table_make(r->pool, 3); 
+
+	if (!flickr_get_xtra_params(pg, xtra_params, 2)) {
+		ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+					"Error in getting params from uri \
+					Debug: uri: %s, len: %d",
+					pg->my_uri, pg->uri_len);
+					
+		return FLICKR_STATUS_ERR;
+	}
+
+	ATSKD(r->pool,method_args,"media",svr_cfg->nr_photos_per_call);
+	ATSD(r->pool,method_args,"method","flickr.photosets.getPhotos");
+	ATSKD(r->pool,method_args,"page",xtra_params[1]);
+	ATSKD(r->pool,method_args,"photoset_id",xtra_params[0]);
+
 	GENHASHSTRING(r, pg, ts, method_args);
 	GENHASH(r, pg, method_args, hash);
 	GENARGSTRING(r, pg, ts, method_args);
@@ -561,8 +699,10 @@ flickr_child_init(apr_pool_t *pchild, server_rec *s)
 
 	/* API call entries. */
 	{
-		APIENTRY("getMyPhotos", flickr_get_my_photos);
-		APIENTRY("getMySets",	flickr_get_my_sets);
+		APIENTRY("getMyPhotos", 	flickr_get_my_photos);
+		APIENTRY("getMySets",		flickr_get_my_sets);
+		APIENTRY("getRecentPhotos", flickr_get_recent_photos);
+		APIENTRY("getPhotosInSet",	flickr_get_photos_in_set);
 	}
 }
 
