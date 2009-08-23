@@ -476,7 +476,7 @@ flickr_get_my_photos(request_rec *r, page_data *pg)
 	char *api, *hash;
 	table_stat ts = {0,0};
 
-	apr_table_t *method_args = apr_table_make(r->pool, 3); 
+	apr_table_t *method_args = apr_table_make(r->pool, 5); 
 
 	/*
 	 * Fill the table with the method
@@ -485,6 +485,7 @@ flickr_get_my_photos(request_rec *r, page_data *pg)
 	ATSD(r->pool,method_args,"method","flickr.photos.search");
 	ATSKD(r->pool,method_args,"page",pg->my_uri);
 	ATSKD(r->pool,method_args,"per_page",svr_cfg->nr_photos_per_call);
+	ATSD(r->pool,method_args,"privacy_filter","1");
 	ATS(method_args,svr_cfg->user_id,svr_cfg->who);
 
 	GENHASHSTRING(r, pg, ts, method_args);
@@ -590,7 +591,7 @@ flickr_get_photos_in_set(request_rec *r, page_data *pg)
 	char *xtra_params[2];
 	table_stat ts = {0,0};
 
-	apr_table_t *method_args = apr_table_make(r->pool, 3); 
+	apr_table_t *method_args = apr_table_make(r->pool, 5); 
 
 	if (!flickr_get_xtra_params(pg, xtra_params, 2)) {
 		ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
@@ -605,6 +606,7 @@ flickr_get_photos_in_set(request_rec *r, page_data *pg)
 	ATSD(r->pool,method_args,"method","flickr.photosets.getPhotos");
 	ATSKD(r->pool,method_args,"page",xtra_params[1]);
 	ATSKD(r->pool,method_args,"photoset_id",xtra_params[0]);
+	ATSD(r->pool,method_args,"privacy_filter","1");
 
 	GENHASHSTRING(r, pg, ts, method_args);
 	GENHASH(r, pg, method_args, hash);
