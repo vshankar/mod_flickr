@@ -65,14 +65,22 @@ typedef struct {
 
 
 typedef struct {
+	char *my_uri;
+	int uri_len;
+
+	/* extracted from uri */
 	char *page;
 	char *user;
 	char *api_call;
-	mem_chunk mem;			
+	
+	/* curl fetched data */
+	mem_chunk mem;
 	char *raw_args;
 	char *raw_signature;
 	int offset_t;
 	int iterations;
+
+	/* credentials of the user requested */
 	api_key_secret *creds;  
 } page_data;
 
