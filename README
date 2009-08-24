@@ -1,6 +1,6 @@
-mod_flickr is a apache module (for apache 2.0 and above) calls flickr API's
+mod_flickr is a apache module (for apache 2.0 and above) that calls flickr API's
 for a configured used (in httpd.conf) to get his public photos, sets, photos
-in sets and recent photos uploaded in photos by everyone.
+in sets and recent photos uploaded in flickr by everyone.
 
 Currently only 4 api calls have been implmeneted, as described above) and all
 API's return data in XML format. The XML can then be parsed by the calling code
