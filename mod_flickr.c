@@ -296,7 +296,7 @@ parse_request(request_rec *r, page_data *pg, user_cred *uc)
 		pg->my_uri = apr_pstrdup(r->pool, r->unparsed_uri);
 	}
 
-	if (!(pg->user = strchr(pg->my_uri + 1, '/')))
+	if (!(pg->user = ap_strchr(pg->my_uri + 1, '/')))
 		return 0;
 
 	*(pg->user) = '\0';
@@ -304,7 +304,7 @@ parse_request(request_rec *r, page_data *pg, user_cred *uc)
 
 	pg->uri_len -= 8;
 
-	if (!(pg->api_call = strchr(pg->user, '/')))
+	if (!(pg->api_call = ap_strchr(pg->user, '/')))
 		return 0;
 
 	*(pg->api_call) = '\0';
@@ -315,7 +315,7 @@ parse_request(request_rec *r, page_data *pg, user_cred *uc)
 
 	pg->uri_len -= (strlen(pg->user) + 1);
 
-	if (!(pg->my_uri = strchr(pg->api_call, '/')))
+	if (!(pg->my_uri = ap_strchr(pg->api_call, '/')))
 		return 0;
 
 	*(pg->my_uri) = '\0';
@@ -372,7 +372,7 @@ static char
  * Common routine for setting
  * user creds.
  */
-static char
+static const char
 *flickr_set_var(cmd_parms *cmd, void *dummy, char *user, char *var)
 {
 	api_key_secret *cred;
@@ -424,10 +424,10 @@ static const command_rec module_cmds[] = {
 
 #define	GENHASHSTRING(r,pg,ts,m) \
 				do { \
-					apr_table_do(add_length, &ts, m, NULL);						\
+					apr_table_do((void *)add_length, &ts, m, NULL);						\
 					pg->raw_signature = apr_pcalloc(r->pool, ts.args_len + 1);	\
 					*(pg->raw_signature + ts.args_len) = '\0';					\
-					pg->offset_t = 0;											\	
+					pg->offset_t = 0;											\
 				} while(0);
 /*
  * flatten the signature string and
@@ -435,7 +435,7 @@ static const command_rec module_cmds[] = {
  */
 #define GENHASH(r,pg,m,h) \
 				do { \
-					apr_table_do(flatten_table, pg, m, NULL);							\
+					apr_table_do((void *)flatten_table, pg, m, NULL);							\
 					h = flickr_md5_gen(r->pool, flickr_signature_string(r->pool, pg));	\
 				} while(0);
 
@@ -449,7 +449,7 @@ static const command_rec module_cmds[] = {
 					pg->iterations = ts.nr_iterations;							\
 					pg->raw_args = apr_pcalloc(r->pool, SIG2ARG(ts) + 1);		\
 					*(pg->raw_args + SIG2ARG(ts)) = '\0';						\
-					apr_table_do(flatten_table_for_args, pg, m, NULL);			\
+					apr_table_do((void *)flatten_table_for_args, pg, m, NULL);			\
 				} while(0);
 
 #define GETDATA(pg,a)	flickr_request_data(&pg->mem, a);
@@ -496,14 +496,14 @@ flickr_get_my_photos(request_rec *r, page_data *pg)
 
 #ifdef DEBUG
 	ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
-				"API: %s, child pid: %d", api, getpid());
+				"API: %s", api);
 #endif
 
 	GETDATA(pg, api);
 
 	if (DATA(pg)) {
 		apr_pool_cleanup_register(r->pool, pg->mem.api_response,
-									      free,
+									      (void *)free,
 										  apr_pool_cleanup_null);
 
 		return FLICKR_STATUS_OK;
@@ -532,14 +532,14 @@ flickr_get_my_sets(request_rec *r, page_data *pg)
 
 #ifdef DEBUG
 	ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
-				"API: %s, child pid: %d", api, getpid());
+				"API: %s", api);
 #endif
 
 	GETDATA(pg, api);
 
 	if (DATA(pg)) {
 		apr_pool_cleanup_register(r->pool, pg->mem.api_response,
-									      free,
+									      (void *)free,
 										  apr_pool_cleanup_null);
 
 		return FLICKR_STATUS_OK;
@@ -568,14 +568,14 @@ flickr_get_recent_photos(request_rec *r, page_data *pg)
 
 #ifdef DEBUG
 	ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
-				"API: %s, child pid: %d", api, getpid());
+				"API: %s", api);
 #endif
 
 	GETDATA(pg, api);
 
 	if (DATA(pg)) {
 		apr_pool_cleanup_register(r->pool, pg->mem.api_response,
-									      free,
+									      (void *)free,
 										  apr_pool_cleanup_null);
 
 		return FLICKR_STATUS_OK;
@@ -616,14 +616,14 @@ flickr_get_photos_in_set(request_rec *r, page_data *pg)
 
 #ifdef DEBUG
 	ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
-				"API: %s, child pid: %d", api, getpid());
+				"API: %s", api);
 #endif
 
 	GETDATA(pg, api);
 
 	if (DATA(pg)) {
 		apr_pool_cleanup_register(r->pool, pg->mem.api_response,
-									      free,
+									      (void *)free,
 										  apr_pool_cleanup_null);
 
 		return FLICKR_STATUS_OK;
