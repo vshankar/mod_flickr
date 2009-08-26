@@ -1,4 +1,8 @@
 #include "httpd.h"
+/*
+ * Set/Get the API function pointer
+ * from the api_call_table.
+ */
 #include "http_config.h"
 #include "http_connection.h"
 #include "http_request.h"
@@ -22,13 +26,8 @@
 /*
  * mod_flickr
  * Apache module curl'ing flickr api's to
- * retrieve, update user's album. Can be used
- * to display a users photos in an album in an
- * iframe (with scrolls etc...)
+ * retrieve, update user's album.
  * 
- * Implemented as a handler hook, the query
- * request is as follows:
- * http://www.whatsoever.com/<username>/<page>
  */
 
 /*
@@ -40,8 +39,6 @@
  */
 
 typedef struct {
-	char *nr_display_photos;	/* string rep. of FLICKR_NR_DISPLAY_PHOTOS		*/
-	char *nr_photos_per_call;	/* string rep. of FLICKR_NR_PHOTOS_PER_CALL		*/
 	char *user_id;				/* "user_id" string								*/
 	char *who;					/* who: me ?									*/
 
@@ -113,16 +110,32 @@ static char
 /* These macros are crocky !!! */
 #define	DUP(p,s)		flickr_dup_string(p,s)
 
+/*
+ * Set/Get the API function pointer
+ * from the api_call_table.
+ */
 #define	APIENTRY(k,v)	apr_hash_set(svr_cfg->api_call_table,	\
 									 		DUP(pchild,k),		\
 									 		APR_HASH_KEY_STRING,\
 											v)
 #define	APIGET(h,k)		apr_hash_get(h, k,\
 									 APR_HASH_KEY_STRING)
-											
+/*
+ * Duplicate string (key/value) and 
+ * set it in the table.
+ *
+ * @args:
+ *	p: pool to strdup() the string.
+ *	m: table name
+ *	k: Key
+ *	v: value
+ */
 #define ATS(m,k,v)		apr_table_setn(m, k, v)
+/* strdup() bothe key/value. */
 #define ATSD(p,m,k,v)	apr_table_setn(m, DUP(p, k), DUP(p,v))
+/* strdup() the key. */
 #define ATSKD(p,m,k,v)	apr_table_setn(m, DUP(p, k), v)
+/* strdup() the value */
 #define ATSVD(p,m,k,v)	apr_table_setn(m, k, DUP(p,v))
 
 static int
@@ -172,20 +185,35 @@ flatten_table_for_args(void *data, char *key, char *value)
 
 	return 1;
 }
-
+/*
+ * Get 'nargs' parameters separated
+ * by '/' from the argument string.
+ *
+ * On return, the passes array (arena)
+ * will look something like:
+ *	([ptr to 1st arg], [ptr to 2nd arg]...[ptr to nth arg]
+ */
 static int
-flickr_get_xtra_params(page_data *pg, char **arena,
-									  int nargs)
+flickr_get_xtra_params(request_rec *r, page_data *pg, char **arena,
+									   					int nargs)
 {
 	int i = 0;
 	char *temp;
 
-	for (; i < nargs - 1; i++) {
-		if (!pg->uri_len)
+	for (; i < nargs; i++) {
+		if (!pg->uri_len) {
+			ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+					"%d args can't be extracted from arg string, Uri: %s",
+					nargs, r->unparsed_uri);
 			return 0;
+		}
 
-		if (!(arena[i] = strchr(pg->my_uri, '/')))
+		if (!(arena[i] = ap_strchr(pg->my_uri, '/'))) {
+			ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+						"Premature Absence of '/' in arg list for Uri: %s",
+						r->unparsed_uri);
 			return 0;
+		}
 
 		*(arena[i]) = '\0';
 		arena[i]++;
@@ -196,8 +224,6 @@ flickr_get_xtra_params(page_data *pg, char **arena,
 
 		pg->uri_len -= (strlen(arena[i]) + 1);
 	}
-
-	arena[i] = pg->my_uri;
 
 	return 1;
 }
@@ -323,8 +349,10 @@ parse_request(request_rec *r, page_data *pg, user_cred *uc)
 
 	pg->uri_len -= (strlen(pg->api_call) + 1);
 
+/*
 	pg->my_uri[pg->uri_len - 1] = '\0';
 	pg->uri_len--;
+*/
 
 	return 1;
 }
@@ -406,22 +434,18 @@ static const command_rec module_cmds[] = {
 	{NULL} 
 };
 
-/* 
- * Arg. manipulation and hash generation
- * macros for APIs.
- *
- * These are used in 
- * every API that is written, so declaring
- * macros for them is a good option.
+/*
+ * Since every API needs to generate the
+ * secret hash, argument list etc.., macros
+ * have been declared for that purpose and
+ * should be used while writing the API.
  */
 
 
 /*
- * macro to compute the length of the buffer
- * needed to hold the string and the number
- * of interations;
+ * Compute the length of the buffer needed
+ * to hold the string to be hashed.
  */
-
 #define	GENHASHSTRING(r,pg,ts,m) \
 				do { \
 					apr_table_do((void *)add_length, &ts, m, NULL);						\
@@ -430,7 +454,7 @@ static const command_rec module_cmds[] = {
 					pg->offset_t = 0;											\
 				} while(0);
 /*
- * flatten the signature string and
+ * Flatten the signature string and
  * generate the MD5 hash from it.
  */
 #define GENHASH(r,pg,m,h) \
@@ -440,8 +464,8 @@ static const command_rec module_cmds[] = {
 				} while(0);
 
 /*
- * macros to generate the argument
- * list from the argument table.
+ * Generate the argument list
+ * from the argument's table.
  */
 #define GENARGSTRING(r,pg,ts,m) \
 				do { \
@@ -452,6 +476,8 @@ static const command_rec module_cmds[] = {
 					apr_table_do((void *)flatten_table_for_args, pg, m, NULL);			\
 				} while(0);
 
+
+
 #define GETDATA(pg,a)	flickr_request_data(&pg->mem, a);
 #define DATA(pg)		pg->mem.api_response
 											
@@ -459,7 +485,7 @@ static const command_rec module_cmds[] = {
 /* ----------------------------------------------------------- */
 /*						API CALL ROUTINES					   */
 /* Rules:													   */
-/* 0. Use the above macros for simplicity.					   */
+/* 0. Use the above macros, they are handy.					   */
 /* 1. If you need only 1 param from the uri					   */
 /*    use my_uri from page_data directly.					   */
 /* 2. Else call the param split routine to					   */
@@ -468,23 +494,31 @@ static const command_rec module_cmds[] = {
 /*	  constants defined in flick.h							   */	
 /* ----------------------------------------------------------- */
 
+/*
+ * TODO: Move similar code in API's
+ * to routines.
+ */
 
 /* get photos for the user. */
 static int
 flickr_get_my_photos(request_rec *r, page_data *pg)
 {
 	char *api, *hash;
+	char *xtra_params[2];
 	table_stat ts = {0,0};
 
 	apr_table_t *method_args = apr_table_make(r->pool, 5); 
+
+	if (!flickr_get_xtra_params(r, pg, xtra_params, 2))
+		return FLICKR_STATUS_ERR;
 
 	/*
 	 * Fill the table with the method
 	 * arguments.
 	 */
 	ATSD(r->pool,method_args,"method","flickr.photos.search");
-	ATSKD(r->pool,method_args,"page",pg->my_uri);
-	ATSKD(r->pool,method_args,"per_page",svr_cfg->nr_photos_per_call);
+	ATSKD(r->pool,method_args,"page",xtra_params[0]);
+	ATSKD(r->pool,method_args,"per_page",xtra_params[1]);
 	ATSD(r->pool,method_args,"privacy_filter","1");
 	ATS(method_args,svr_cfg->user_id,svr_cfg->who);
 
@@ -521,7 +555,7 @@ flickr_get_my_sets(request_rec *r, page_data *pg)
 	char *api, *hash;
 	table_stat ts = {0,0};
 
-	apr_table_t *method_args = apr_table_make(r->pool, 3); 
+	apr_table_t *method_args = apr_table_make(r->pool, 1); 
 
 	ATSD(r->pool,method_args,"method","flickr.photosets.getList");
 	GENHASHSTRING(r, pg, ts, method_args);
@@ -552,13 +586,17 @@ static int
 flickr_get_recent_photos(request_rec *r, page_data *pg)
 {
 	char *api, *hash;
+	char *xtra_params[2];
 	table_stat ts = {0,0};
 
 	apr_table_t *method_args = apr_table_make(r->pool, 3); 
 
+	if (!flickr_get_xtra_params(r, pg, xtra_params, 2))
+		return FLICKR_STATUS_ERR;
+
 	ATSD(r->pool,method_args,"method","flickr.photos.getRecent");
-	ATSKD(r->pool,method_args,"page",pg->my_uri);
-	ATSKD(r->pool,method_args,"per_page",svr_cfg->nr_photos_per_call);
+	ATSKD(r->pool,method_args,"page",xtra_params[0]);
+	ATSKD(r->pool,method_args,"per_page",xtra_params[1]);
 
 	GENHASHSTRING(r, pg, ts, method_args);
 	GENHASH(r, pg, method_args, hash);
@@ -588,21 +626,15 @@ static int
 flickr_get_photos_in_set(request_rec *r, page_data *pg)
 {
 	char *api, *hash;
-	char *xtra_params[2];
+	char *xtra_params[3];
 	table_stat ts = {0,0};
 
 	apr_table_t *method_args = apr_table_make(r->pool, 5); 
 
-	if (!flickr_get_xtra_params(pg, xtra_params, 2)) {
-		ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
-					"Error in getting params from uri \
-					Debug: uri: %s, len: %d",
-					pg->my_uri, pg->uri_len);
-					
+	if (!flickr_get_xtra_params(r, pg, xtra_params, 3))
 		return FLICKR_STATUS_ERR;
-	}
 
-	ATSKD(r->pool,method_args,"media",svr_cfg->nr_photos_per_call);
+	ATSKD(r->pool,method_args,"media",xtra_params[2]);
 	ATSD(r->pool,method_args,"method","flickr.photosets.getPhotos");
 	ATSKD(r->pool,method_args,"page",xtra_params[1]);
 	ATSKD(r->pool,method_args,"photoset_id",xtra_params[0]);
@@ -641,6 +673,9 @@ static int
 flickr_handler(request_rec *r)
 {
 	if (!r->handler || strcmp(r->handler, "flickr-handler") != 0)
+		return DECLINED;
+
+	if(r->method_number != M_GET)
 		return DECLINED;
 
 	user_cred *uc = ap_get_module_config(r->server->module_config,
@@ -689,12 +724,8 @@ flickr_child_init(apr_pool_t *pchild, server_rec *s)
 {
 	svr_cfg = apr_pcalloc(pchild, sizeof(svr_constants));
 
-	svr_cfg->nr_display_photos  = apr_itoa(pchild,
-										   FLICKR_NR_DISPLAY_PHOTOS);
-	svr_cfg->nr_photos_per_call = apr_itoa(pchild,
-										   FLICKR_NR_PHOTOS_PER_CALL);
-	svr_cfg->user_id 			= apr_pstrdup(pchild, "user_id");
-	svr_cfg->who				= apr_pstrdup(pchild, "me"); 
+	svr_cfg->user_id 			= DUP(pchild, "user_id");
+	svr_cfg->who				= DUP(pchild, "me"); 
 
 	/* initialize the API call table. */
 	svr_cfg->api_call_table = apr_hash_make(pchild);
