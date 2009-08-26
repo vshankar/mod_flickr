@@ -61,27 +61,29 @@ Apache configuration (httpd.conf)
 	supports four api calls. (see below)
 
 
-API Calls
----------
+API Calls (extra parameters are ignored)
+----------------------------------------
+----------------------------------------
 
-a. getMyPhotos		- get public photos of the user (takes 1 param: page number)
+a. getMyPhotos		- get public photos of the user (takes 2 param: page number, number of photos)
 ----------------------------------------------------
-http://www.whatsoever.com/flickr/vshankar/getMyPhotos/1			# get photos in 1st page
-http://www.whatsoever.com/flickr/vshankar/getMyPhotos/2			# get photos in 2nd page
+http://www.whatsoever.com/flickr/vshankar/getMyPhotos/1/10			# get 10 photos in 1st page
+http://www.whatsoever.com/flickr/vshankar/getMyPhotos/2/10			# get 10 photos in 2nd page
+http://www.whatsoever.com/flickr/vshankar/getMyPhotos/1/30			# get 30 photos in 2nd page
 
 b. getMySets		- get sets of the user (takes no param)
 ----------------------------------------------------
-http://www.whatsoever.com/flickr/vshankar/getMySets/			# get sets (no parameters)
+http://www.whatsoever.com/flickr/vshankar/getMySets/				# get sets (no parameters)
 
-c. getPhotosInSet	- get public photos in set (takes 2 params: set id and page number)
+c. getPhotosInSet	- get public photos in set (takes 3 params: set id, page number, number of photos)
 ----------------------------------------------------
-http://www.whatsoever.com/flickr/vshankar/getPhotosInSet/123456/1
-http://www.whatsoever.com/flickr/vshankar/getPhotosInSet/123456/2
+http://www.whatsoever.com/flickr/vshankar/getPhotosInSet/123456/1/20
+http://www.whatsoever.com/flickr/vshankar/getPhotosInSet/123456/2/20
 
-d. getRecentPhotos	- get recent public photos in flickr (take 1 param: page number)
+d. getRecentPhotos	- get recent public photos in flickr (take 2 param: page number, number of photos)
 ----------------------------------------------------
-http://www.whatsoever.com/flickr/vshankar/getRecentPhotos/1
-http://www.whatsoever.com/flickr/vshankar/getRecentPhotos/1
+http://www.whatsoever.com/flickr/vshankar/getRecentPhotos/1/50		# get 50 photos in 1st page
+http://www.whatsoever.com/flickr/vshankar/getRecentPhotos/1/100		# get 100 photos in 1st page
 
 
 
