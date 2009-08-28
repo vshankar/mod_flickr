@@ -1,5 +1,4 @@
 HANDLER = flickr-handler
-DEBUG = y
 
 APXS = apxs
 
