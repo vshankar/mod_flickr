@@ -1,14 +1,18 @@
-mod_flickr is a apache module (for apache 2.0 and above) that makes call to 
-flickr via flickr API's to get a users (configured in httpd.conf) public photo 
-sets, photos in sets and recent photos uploaded in flickr etc... 
+mod_flickr is a apache module (for apache 2.0 and above) that makes call to
+flickr via flickr API's to get a users (configured in httpd.conf) public photo
+sets, photos in sets and recent photos uploaded in flickr etc...
 
-Currently only 4 api calls have been implmeneted, as described above) and all
+Currently only 4 api calls have been implmeneted (all are GET calls). These
 API's return data in XML format. The XML can then be parsed by the calling code
-(e.g. front end Javascript/AJAX) to display thumbnails of the images say in a
-scrollbar. (Code for js/ajax is not distributed as yet but should be trivial for
-anyone who has it's knowledge). This module can be used by web developers who
-want to show their flickr photos in their website and/or access to metadata of
-their photos for their own needs.
+(e.g. front end Javascript/php) to display thumbnails of the images say in a
+scrollbar. (Code for front end is not distributed as yet)
+
+This module can be used by web developers who want to show their photos/albums
+uploaded in flickr on their website and/or access to metadata of their photos
+for their own needs/purposes.
+
+WWW: http://www.vshank.com/code/mod_flickr
+
 
 0. INSTALLATION
 ---------------
@@ -36,6 +40,8 @@ Apache configuration (httpd.conf)
 		be called as a part of the URI (see below, step 4).
 		Enter the key, secret and auth-token in place of
 		'xxxx' in repective directives
+	   (Keys can be obtained from: http://www.flickr.com/services/api/
+		Auth Mode: Mobile)
 
 	FlickrUser      <user>
 	FlickrKey       <user>	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -55,21 +61,22 @@ Apache configuration (httpd.conf)
 
 	http://whatsoever.com/flickr/<user>/<api>/<arguments/to/the/api>
 
-	e.g. http://whatsoever.com/flickr/vshankar/getMyPhotos/1
+	e.g. http://whatsoever.com/flickr/vshankar/getMyPhotos/1/10
 	This would fetch the public photos for user 'vshankar'
-	(actually whatever 'vshankar' maps to the keys). mod_flickr
-	supports four api calls. (see below)
+	(actually whatever 'vshankar' maps to the keys).
+
+	NOTE: As of now mod_flickr supports four api calls. (see below)
 
 
-API Calls (extra parameters are ignored)
-----------------------------------------
-----------------------------------------
+API Calls (NOTE: Any extra parameters are ignored by the API)
+-------------------------------------------------------------
+-------------------------------------------------------------
 
 a. getMyPhotos		- get public photos of the user (takes 2 param: page number, number of photos)
 ----------------------------------------------------
 http://www.whatsoever.com/flickr/vshankar/getMyPhotos/1/10			# get 10 photos in 1st page
 http://www.whatsoever.com/flickr/vshankar/getMyPhotos/2/10			# get 10 photos in 2nd page
-http://www.whatsoever.com/flickr/vshankar/getMyPhotos/1/30			# get 30 photos in 2nd page
+http://www.whatsoever.com/flickr/vshankar/getMyPhotos/1/30			# get 30 photos in 1nd page
 
 b. getMySets		- get sets of the user (takes no param)
 ----------------------------------------------------
@@ -84,6 +91,19 @@ d. getRecentPhotos	- get recent public photos in flickr (take 2 param: page numb
 ----------------------------------------------------
 http://www.whatsoever.com/flickr/vshankar/getRecentPhotos/1/50		# get 50 photos in 1st page
 http://www.whatsoever.com/flickr/vshankar/getRecentPhotos/1/100		# get 100 photos in 1st page
+
+
+TODO:
+----
+----
+
+> Add more API's.
+> Make privacy level as a config. parameter (in case the user
+  wants to use this module for other purposes)
+> Configuration option for returning the data as XML/JSON or
+  as a markup (so that this can be pointed to from an iframe)
+> Caching response for calls that dont change frequently or
+  if the user updates his album once a day or so.
 
 
 
