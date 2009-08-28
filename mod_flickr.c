@@ -1,8 +1,4 @@
 #include "httpd.h"
-/*
- * Set/Get the API function pointer
- * from the api_call_table.
- */
 #include "http_config.h"
 #include "http_connection.h"
 #include "http_request.h"
@@ -26,7 +22,7 @@
 /*
  * mod_flickr
  * Apache module curl'ing flickr api's to
- * retrieve, update user's album.
+ * retrieve user's album etc..
  * 
  */
 
@@ -39,8 +35,8 @@
  */
 
 typedef struct {
-	char *user_id;				/* "user_id" string								*/
-	char *who;					/* who: me ?									*/
+	char *user_id;				/* "user_id" string		*/
+	char *who;					/* who: me ?			*/
 
 	/*
 	 * this hash contains the api
@@ -115,11 +111,11 @@ static char
  * from the api_call_table.
  */
 #define	APIENTRY(k,v)	apr_hash_set(svr_cfg->api_call_table,	\
-									 		DUP(pchild,k),		\
-									 		APR_HASH_KEY_STRING,\
+											DUP(pchild,k),		\
+											APR_HASH_KEY_STRING,\
 											v)
 #define	APIGET(h,k)		apr_hash_get(h, k,\
-									 APR_HASH_KEY_STRING)
+					 			APR_HASH_KEY_STRING)
 /*
  * Duplicate string (key/value) and 
  * set it in the table.
@@ -131,7 +127,7 @@ static char
  *	v: value
  */
 #define ATS(m,k,v)		apr_table_setn(m, k, v)
-/* strdup() bothe key/value. */
+/* strdup() both key/value. */
 #define ATSD(p,m,k,v)	apr_table_setn(m, DUP(p, k), DUP(p,v))
 /* strdup() the key. */
 #define ATSKD(p,m,k,v)	apr_table_setn(m, DUP(p, k), v)
@@ -348,11 +344,6 @@ parse_request(request_rec *r, page_data *pg, user_cred *uc)
 	pg->my_uri++;
 
 	pg->uri_len -= (strlen(pg->api_call) + 1);
-
-/*
-	pg->my_uri[pg->uri_len - 1] = '\0';
-	pg->uri_len--;
-*/
 
 	return 1;
 }
