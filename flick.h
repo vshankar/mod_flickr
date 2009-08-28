@@ -1,13 +1,6 @@
 #ifndef __FLICK_H
 #define	__FLICK_H
 
-/*
- * Constants for number of display and
- * number of photos to query Flickr.
- */
-#define FLICKR_NR_DISPLAY_PHOTOS		10
-#define FLICKR_NR_PHOTOS_PER_CALL		FLICKR_NR_DISPLAY_PHOTOS * 3
-
 
 /* Flickr related URL format's. */
 #define	FLICKR_AUTH_STRING				"http://api.flickr.com/services/rest/?api_key=%s&auth_token=%s&api_sig=%s&%s"
@@ -19,10 +12,6 @@
 #define	FLICKR_STATUS_OK	1
 #define	FLICKR_STATUS_ERR	0
 
-/*
- * Flickr API calls.
- */
-#define	FLICKR_PHOTOS_SEARCH			"flickr.photos.search"
 
 typedef struct {
 	int args_len;
