@@ -34,12 +34,24 @@ typedef struct {
 typedef struct {
 	short on_off;
 	apr_hash_t	*user;
+#ifdef WITH_CACHING
+	apr_array_header_t *memc_svr;
+#endif
 } user_cred;
 
 typedef struct {
 	char *auth_token;
 	char *api_key;
 	char *secret;
+	/*
+	 * Privacy control for the
+	 * user, values accepted b/w
+	 * one to five.
+	 */
+	short privacy;
+#ifdef WITH_CACHING
+	volatile apr_time_t delta_cache_timeout;
+#endif
 } api_key_secret;
 
 /*
@@ -75,6 +87,9 @@ typedef struct {
 
 
 /* macros for accessing page data */
+#ifdef WITH_CACHING
+#define	CACHEEXP(pg)	pg->creds->delta_cache_timeout
+#endif
 #define APINAM(pg)	pg->api_call
 #define	SECRET(pg)	pg->creds->secret
 #define	APIKEY(pg)	pg->creds->api_key
