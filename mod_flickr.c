@@ -11,6 +11,7 @@
 #include "apr_tables.h"
 #include "apr_strings.h"
 #include "apr_time.h"
+#include "apr_lib.h"
 
 #include <curl/curl.h>
 #include <curl/easy.h>
@@ -18,6 +19,13 @@
 #include "md5.h"
 
 #include "flick.h"
+
+#ifdef WITH_CACHING
+#include <libmemcached/memcached.h>
+#if APR_HAS_THREADS
+#include "apr_thread_mutex.h"
+#endif
+#endif
 
 /*
  * mod_flickr
@@ -45,6 +53,18 @@ typedef struct {
 	 * the API as the value.
 	 */
 	apr_hash_t *api_call_table;
+
+	/*
+	 * only if caching is enabled.
+	 */
+#ifdef WITH_CACHING
+	memcached_st *memc;
+	memcached_server_st *servers;
+#if APR_HAS_THREADS
+	/* mutex to protect from concurrent access. */
+	apr_thread_mutex_t *mutex;
+#endif
+#endif
 } svr_constants;
 
 svr_constants *svr_cfg;
@@ -355,6 +375,9 @@ static void
 	
 	uc->on_off	= 0;		/* Off by default */
 	uc->user	= apr_hash_make(p);
+#ifdef WITH_CACHING
+	uc->memc_svr = apr_array_make(p, 6, sizeof(char *));
+#endif
 
 	return uc;
 }
@@ -371,11 +394,82 @@ static char
 	return NULL;
 }
 
+#ifdef WITH_CACHING
+static char
+*flickr_set_cache_server(cmd_parms *cmd, void *dummy, char *arg)
+{
+	user_cred *uc = ap_get_module_config(cmd->server->module_config,
+										&mod_flickr);
+	if (uc) {
+		char **entry = apr_array_push(uc->memc_svr);
+		*entry = (void *)arg;
+	}
+	return NULL;
+}
+
+static char
+*flickr_set_cache_timeout(cmd_parms *cmd, void *dummy, char *user,
+														char *val)
+{
+	api_key_secret *cred;
+	user_cred *uc = ap_get_module_config(cmd->server->module_config,
+										&mod_flickr);
+
+	if (uc) {
+		if ( (cred = get_user(uc, user)) ) {
+			char c = val[strlen(val) - 1];
+			int multiplier = 1;
+
+			if (!apr_isdigit(c)) {
+				switch (c) {
+					case 's':
+					case 'S':
+						multiplier = 1;
+						break;
+					case 'm':
+					case 'M':
+						multiplier = 60;
+						break;
+					case 'h':
+					case 'H':
+						multiplier = 3600;
+						break;
+					case 'd':
+					case 'D':
+						multiplier = 24 * 3600;
+						break;
+				}
+			}
+			cred->delta_cache_timeout = atoi(val) * multiplier;
+		}
+	}
+
+	return NULL;
+}
+#endif
+
 static char
 *flickr_set_user(cmd_parms *cmd, void *dummy, char *arg)
 {
 	api_key_secret *cred = apr_pcalloc(cmd->pool,
 									  sizeof(api_key_secret));
+
+#ifdef WITH_CACHING
+	/* don't cache by default. */
+	cred->delta_cache_timeout = -1;
+#endif
+
+	/*
+	 * Set default privacy level to public.
+	 *
+	 * Privacy Levels: (from flickr API documentation)
+	 *	1 - public photos
+	 *	2 - private photos visible to friends
+	 *	3 - private photos visible to family
+	 *	4 - private photos visible to friends & family
+	 *	5 - completely private photos
+	 */
+	cred->privacy = 1;
 
 	user_cred *uc = ap_get_module_config(cmd->server->module_config,
 										&mod_flickr);
@@ -407,10 +501,56 @@ static const char
 	return NULL;
 }
 
+/*
+ * Set user privacy level.
+ * Levels are as follows: (case sensitive)
+ *	- Public
+ *	- FriendsOnly
+ *	- FamilyOnly
+ *	- FriendsAndFamily
+ *	- PrivateOnly
+ */
+
+static const char
+*flickr_set_user_privacy(cmd_parms *cmd, void *dummy, char *user, char *arg)
+{
+	api_key_secret *cred;
+    user_cred *uc = ap_get_module_config(cmd->server->module_config,
+                                                &mod_flickr);
+
+	if (uc) {
+		if ( (cred = get_user(uc, user)) ) {
+			/* ha, ha, ha, am i clever? Crapppppp. */
+			if ( (*arg == 'P') && (!strcmp(arg, "PrivateOnly")) )
+				cred->privacy = 5;
+			else {
+				if (!strcmp(arg, "FriendsOnly"))
+					cred->privacy = 2;
+				else
+					if (!strcmp(arg, "FamilyOnly"))
+						cred->privacy = 3;
+					else
+						if (!strcmp(arg, "FriendsAndFamily"))
+							cred->privacy = 4;
+			}
+		}
+	}
+
+	return NULL;
+}
+
 
 static const command_rec module_cmds[] = {
 	AP_INIT_FLAG("FlickrMod", flickr_set_on_off, NULL, RSRC_CONF,
 				"Enables/Disables the flickr module"),
+#ifdef WITH_CACHING
+	AP_INIT_ITERATE("FlickrCacheServers", flickr_set_cache_server, NULL,
+				RSRC_CONF, "Enable/Disable memcache, takes list\
+								of memcache servers"),
+	AP_INIT_TAKE2("FlickrCacheTimeout", flickr_set_cache_timeout,
+				NULL, RSRC_CONF, "User name and Cache Expire timeout\
+								for flickr response"),
+#endif
 	AP_INIT_TAKE1("FlickrUser", flickr_set_user, NULL, RSRC_CONF,
 				"Username for the flickr account/URL query"),
 	AP_INIT_TAKE2("FlickrKey", flickr_set_var,
@@ -422,6 +562,8 @@ static const command_rec module_cmds[] = {
 	AP_INIT_TAKE2("FlickrAuth", flickr_set_var,
 				(void *)APR_OFFSETOF(api_key_secret, auth_token),
 				RSRC_CONF, "Username and Auth token"),
+	AP_INIT_TAKE2("FlickrUserPrivacy", flickr_set_user_privacy, NULL,
+				RSRC_CONF, "Privacy Level for this user"),
 	{NULL} 
 };
 
@@ -471,6 +613,18 @@ static const command_rec module_cmds[] = {
 
 #define GETDATA(pg,a)	flickr_request_data(&pg->mem, a);
 #define DATA(pg)		pg->mem.api_response
+
+/*
+ * cache the response
+ */
+#ifdef WITH_CACHING
+#define CACHE(r,s,pg)	memcached_set(s->memc, r->unparsed_uri,			\
+											strlen(r->unparsed_uri),	\
+											DATA(pg),					\
+											strlen(DATA(pg)),			\
+											CACHEEXP(pg),				\
+											(uint32_t)0)	
+#endif
 											
 
 /* ----------------------------------------------------------- */
@@ -489,6 +643,30 @@ static const command_rec module_cmds[] = {
  * TODO: Move similar code in API's
  * to routines.
  */
+#ifdef WITH_CACHING
+static int
+get_cached_data(request_rec *r, page_data *pg)
+{
+	uint32_t flags;
+	size_t retval_length;
+
+	memcached_return rc;
+
+	pg->mem.api_response = memcached_get(svr_cfg->memc, r->unparsed_uri,
+												strlen(r->unparsed_uri),
+												&retval_length, &flags,
+												&rc);
+
+	if (rc == MEMCACHED_SUCCESS) {
+		apr_pool_cleanup_register(r->pool, pg->mem.api_response,
+									      (void *)free,
+										  apr_pool_cleanup_null);
+		return 1;
+	}
+	return 0;
+}
+
+#endif
 
 /* get photos for the user. */
 static int
@@ -497,6 +675,50 @@ flickr_get_my_photos(request_rec *r, page_data *pg)
 	char *api, *hash;
 	char *xtra_params[2];
 	table_stat ts = {0,0};
+
+#ifdef WITH_CACHING
+
+	/*
+	 * Only check cache if the cache
+	 * ttl is greater than zero, thereby
+	 * saving calls to locking routines.
+	 */
+	if (CACHEEXP(pg) >= 0) {
+
+		if (get_cached_data(r, pg))
+			return FLICKR_STATUS_OK;
+
+#if APR_HAS_THREADS
+		/*
+		 * when we are here, we don't have the
+		 * data cached, hence we try to acquire
+		 * the lock (for memcached) and get data
+		 * from Flickr.
+		 */
+
+		if ( (apr_thread_mutex_lock(svr_cfg->mutex) != APR_SUCCESS) ) {
+			ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+						"Failed to aquire mutex...");
+			return FLICKR_STATUS_ERR;
+		}
+
+		/*
+		 * In case the data got pulled from flickr
+		 * and cached by another request in between
+		 * in call to the initial cache check and
+		 * aquiring the lock.
+		 */
+		if (get_cached_data(r, pg)) {
+
+			if ( (apr_thread_mutex_unlock(svr_cfg->mutex) != APR_SUCCESS) )
+				ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+							"mod_flickr: Failed to release mutex...");
+
+			return FLICKR_STATUS_OK;
+		}
+#endif
+	}
+#endif
 
 	apr_table_t *method_args = apr_table_make(r->pool, 5); 
 
@@ -510,7 +732,8 @@ flickr_get_my_photos(request_rec *r, page_data *pg)
 	ATSD(r->pool,method_args,"method","flickr.photos.search");
 	ATSKD(r->pool,method_args,"page",xtra_params[0]);
 	ATSKD(r->pool,method_args,"per_page",xtra_params[1]);
-	ATSD(r->pool,method_args,"privacy_filter","1");
+	ATSKD(r->pool,method_args,"privacy_filter",apr_itoa(r->pool,
+													pg->creds->privacy));
 	ATS(method_args,svr_cfg->user_id,svr_cfg->who);
 
 	GENHASHSTRING(r, pg, ts, method_args);
@@ -527,6 +750,16 @@ flickr_get_my_photos(request_rec *r, page_data *pg)
 	GETDATA(pg, api);
 
 	if (DATA(pg)) {
+#ifdef WITH_CACHING
+	if (CACHEEXP(pg) >= 0) {
+		CACHE(r,svr_cfg,pg);
+#if APR_HAS_THREADS
+		if ( (apr_thread_mutex_unlock(svr_cfg->mutex) != APR_SUCCESS) )
+			ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+						"mod_flickr: failed to release mutex...");
+#endif
+	}
+#endif
 		apr_pool_cleanup_register(r->pool, pg->mem.api_response,
 									      (void *)free,
 										  apr_pool_cleanup_null);
@@ -720,6 +953,64 @@ flickr_child_init(apr_pool_t *pchild, server_rec *s)
 
 	/* initialize the API call table. */
 	svr_cfg->api_call_table = apr_hash_make(pchild);
+
+#ifdef WITH_CACHING
+	user_cred *uc = ap_get_module_config(s->module_config,
+											&mod_flickr);
+
+	char *host, *port;
+	int i = 0,
+		nelts = (uc->memc_svr)->nelts,
+		elt_size = (uc->memc_svr)->elt_size;
+
+	memcached_return rc;
+
+	for (; i < nelts; i++) {
+		host = *((char **)((uc->memc_svr)->elts + (i * elt_size)));
+
+		if ( (port = ap_strchr(host, ':')) ) {
+			*port = '\0';
+			port++;
+		}
+
+		if (!i) {
+			svr_cfg->servers = memcached_server_list_append(NULL,
+												host,
+												(port ? atoi(port) : 11211),
+												&rc);
+
+			continue;
+		}
+
+		svr_cfg->servers = memcached_server_list_append(svr_cfg->servers,
+												host,
+												(port ? atoi(port) : 11211),
+												&rc);
+	}
+	
+	svr_cfg->memc = memcached_create(NULL);
+	rc = memcached_server_push(svr_cfg->memc, svr_cfg->servers);
+
+#if APR_HAS_THREADS
+	apr_status_t rv;
+
+	rv = apr_thread_mutex_create(&svr_cfg->mutex, APR_THREAD_MUTEX_DEFAULT,
+													pchild);
+
+	if (rv != APR_SUCCESS) {
+		ap_log_error(APLOG_MARK, APLOG_CRIT, 0, s,
+					"mod_flickr: Unable to create mutex !!!");
+	}
+#endif
+
+	apr_pool_cleanup_register(pchild, svr_cfg->servers,
+									  (void *)memcached_server_free,
+									  apr_pool_cleanup_null);
+	apr_pool_cleanup_register(pchild, svr_cfg->memc,
+									  (void *)memcached_free,
+									  apr_pool_cleanup_null);
+
+#endif
 
 	/* API call entries. */
 	{
