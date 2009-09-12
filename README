@@ -97,13 +97,14 @@ TODO:
 ----
 ----
 
-> Add more API's.
 > Make privacy level as a config. parameter (in case the user
-  wants to use this module for other purposes)
+  wants to use this module for other purposes) - DONE
+> Caching response for calls that dont change frequently or
+  if the user updates his album once a day or so. - DONE
+
+> Add more API's.
 > Configuration option for returning the data as XML/JSON or
   as a markup (so that this can be pointed to from an iframe)
-> Caching response for calls that dont change frequently or
-  if the user updates his album once a day or so.
 
 
 
