@@ -61,7 +61,10 @@ typedef struct {
 	memcached_st *memc;
 	memcached_server_st *servers;
 #if APR_HAS_THREADS
-	/* mutex to protect from concurrent access. */
+	/* 
+	 * mutex to protect the cache from
+	 * concurrent access.
+	 */
 	apr_thread_mutex_t *mutex;
 #endif
 #endif
@@ -644,8 +647,9 @@ static const command_rec module_cmds[] = {
  * to routines.
  */
 #ifdef WITH_CACHING
+
 static int
-get_cached_data(request_rec *r, page_data *pg)
+check_cache(request_rec *r, page_data *pg)
 {
 	uint32_t flags;
 	size_t retval_length;
@@ -666,6 +670,44 @@ get_cached_data(request_rec *r, page_data *pg)
 	return 0;
 }
 
+
+#if APR_HAS_THREADS
+
+static int
+lock_cache(request_rec *r, page_data *pg)
+{
+	/*
+	 * when we are here, we don't have the
+	 * data cached, hence we try to acquire
+	 * the lock (for memcached) and get data
+	 * from Flickr.
+	 */
+
+	if ( (apr_thread_mutex_lock(svr_cfg->mutex) != APR_SUCCESS) ) {
+		ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+					"Failed to aquire mutex...");
+
+		return 0;
+	}
+
+	/*
+	 * In case the data got pulled from flickr
+	 * and cached by another request in between
+	 * in call to the initial cache check and
+	 * aquiring the lock.
+	 */
+
+	if (check_cache(r, pg)) {
+		if ( (apr_thread_mutex_unlock(svr_cfg->mutex) != APR_SUCCESS) )
+			ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+				"mod_flickr: Failed to release mutex...");
+	}
+
+	return 1;
+}
+
+#endif
+
 #endif
 
 /* get photos for the user. */
@@ -683,41 +725,19 @@ flickr_get_my_photos(request_rec *r, page_data *pg)
 	 * ttl is greater than zero, thereby
 	 * saving calls to locking routines.
 	 */
-	if (CACHEEXP(pg) >= 0) {
-
-		if (get_cached_data(r, pg))
-			return FLICKR_STATUS_OK;
+	if (CACHEEXP(pg) >= 0 && check_cache(r, pg))
+		return FLICKR_STATUS_OK;
 
 #if APR_HAS_THREADS
-		/*
-		 * when we are here, we don't have the
-		 * data cached, hence we try to acquire
-		 * the lock (for memcached) and get data
-		 * from Flickr.
-		 */
 
-		if ( (apr_thread_mutex_lock(svr_cfg->mutex) != APR_SUCCESS) ) {
-			ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
-						"Failed to aquire mutex...");
-			return FLICKR_STATUS_ERR;
-		}
+	if (!lock_cache(r ,pg))
+		return FLICKR_STATUS_ERR;
 
-		/*
-		 * In case the data got pulled from flickr
-		 * and cached by another request in between
-		 * in call to the initial cache check and
-		 * aquiring the lock.
-		 */
-		if (get_cached_data(r, pg)) {
+	if (DATA(pg))
+		return FLICKR_STATUS_OK;
 
-			if ( (apr_thread_mutex_unlock(svr_cfg->mutex) != APR_SUCCESS) )
-				ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
-							"mod_flickr: Failed to release mutex...");
-
-			return FLICKR_STATUS_OK;
-		}
 #endif
-	}
+
 #endif
 
 	apr_table_t *method_args = apr_table_make(r->pool, 5); 
@@ -732,7 +752,7 @@ flickr_get_my_photos(request_rec *r, page_data *pg)
 	ATSD(r->pool,method_args,"method","flickr.photos.search");
 	ATSKD(r->pool,method_args,"page",xtra_params[0]);
 	ATSKD(r->pool,method_args,"per_page",xtra_params[1]);
-	ATSKD(r->pool,method_args,"privacy_filter",apr_itoa(r->pool,
+	ATSKD(r->pool,method_args,"privacy_filter", apr_itoa(r->pool,
 													pg->creds->privacy));
 	ATS(method_args,svr_cfg->user_id,svr_cfg->who);
 
@@ -754,6 +774,7 @@ flickr_get_my_photos(request_rec *r, page_data *pg)
 	if (CACHEEXP(pg) >= 0) {
 		CACHE(r,svr_cfg,pg);
 #if APR_HAS_THREADS
+		/* Unlock the Mutex. */
 		if ( (apr_thread_mutex_unlock(svr_cfg->mutex) != APR_SUCCESS) )
 			ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
 						"mod_flickr: failed to release mutex...");
@@ -779,6 +800,22 @@ flickr_get_my_sets(request_rec *r, page_data *pg)
 	char *api, *hash;
 	table_stat ts = {0,0};
 
+#ifdef WITH_CACHING
+    if (CACHEEXP(pg) >= 0 && check_cache(r, pg))
+        return FLICKR_STATUS_OK;
+
+#if APR_HAS_THREADS
+    if (!lock_cache(r ,pg))
+        return FLICKR_STATUS_ERR;
+
+    if (DATA(pg))
+        return FLICKR_STATUS_OK;
+
+#endif
+
+#endif
+
+
 	apr_table_t *method_args = apr_table_make(r->pool, 1); 
 
 	ATSD(r->pool,method_args,"method","flickr.photosets.getList");
@@ -796,6 +833,16 @@ flickr_get_my_sets(request_rec *r, page_data *pg)
 	GETDATA(pg, api);
 
 	if (DATA(pg)) {
+#ifdef WITH_CACHING
+    if (CACHEEXP(pg) >= 0) {
+        CACHE(r,svr_cfg,pg);
+#if APR_HAS_THREADS
+        if ( (apr_thread_mutex_unlock(svr_cfg->mutex) != APR_SUCCESS) )
+            ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+                        "mod_flickr: failed to release mutex...");
+#endif
+    }
+#endif
 		apr_pool_cleanup_register(r->pool, pg->mem.api_response,
 									      (void *)free,
 										  apr_pool_cleanup_null);
@@ -862,7 +909,8 @@ flickr_get_photos_in_set(request_rec *r, page_data *pg)
 	ATSD(r->pool,method_args,"method","flickr.photosets.getPhotos");
 	ATSKD(r->pool,method_args,"page",xtra_params[1]);
 	ATSKD(r->pool,method_args,"photoset_id",xtra_params[0]);
-	ATSD(r->pool,method_args,"privacy_filter","1");
+	ATSKD(r->pool,method_args,"privacy_filter", apr_itoa(r->pool,
+														pg->creds->privacy));
 
 	GENHASHSTRING(r, pg, ts, method_args);
 	GENHASH(r, pg, method_args, hash);
