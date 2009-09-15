@@ -936,6 +936,45 @@ flickr_get_photos_in_set(request_rec *r, page_data *pg)
 	return FLICKR_STATUS_ERR;
 }
 
+static int
+flickr_get_comment_for_photo(request_rec *r, page_data *pg)
+{
+    char *api, *hash;
+    char *xtra_params[1];
+    table_stat ts = {0,0};
+
+    apr_table_t *method_args = apr_table_make(r->pool, 2);
+
+    if (!flickr_get_xtra_params(r, pg, xtra_params, 1))
+        return FLICKR_STATUS_ERR;
+
+	ATSD(r->pool,method_args,"method","flickr.photos.comments.getList");
+	ATSKD(r->pool, method_args, "photo_id", xtra_params[0]);
+
+    GENHASHSTRING(r, pg, ts, method_args);
+    GENHASH(r, pg, method_args, hash);
+    GENARGSTRING(r, pg, ts, method_args);
+
+    api = flickr_auth_string(r->pool, hash, pg);
+
+#ifdef DEBUG
+    ap_log_error(APLOG_MARK, APLOG_CRIT, 0, r->server,
+                "API: %s", api); 
+#endif
+
+    GETDATA(pg, api);
+
+    if (DATA(pg)) {
+        apr_pool_cleanup_register(r->pool, pg->mem.api_response,
+                                          (void *)free,
+                                          apr_pool_cleanup_null);
+
+        return FLICKR_STATUS_OK;
+    }
+
+    return FLICKR_STATUS_ERR;
+}
+
 /* ----------------------------------------------------------- */
 
 /*
@@ -1066,6 +1105,7 @@ flickr_child_init(apr_pool_t *pchild, server_rec *s)
 		APIENTRY("getMySets",		flickr_get_my_sets);
 		APIENTRY("getRecentPhotos", flickr_get_recent_photos);
 		APIENTRY("getPhotosInSet",	flickr_get_photos_in_set);
+		APIENTRY("getPhotoComment",	flickr_get_comment_for_photo);
 	}
 }
 
