@@ -54,7 +54,13 @@ Apache configuration (httpd.conf)
 		memcached running.
 
 		FlickrCacheServers 192.168.1.2		# memcache server IP
-		FlickrCacheTimeout  vshankar 1d		# cache TTL
+		FlickrCacheTimeout  vshankar 1d		# cache TTL (0 === cache indefinitely)
+
+		NOTE: If you don't want to cache flickr responses or you
+			  have your own caching mechanism (mod_cache etc...)
+			  compile this module without WITH_CACHING or if it's
+			  already compiled with caching, then turn caching off
+			  by setting: FlickrCacheTimeout -1
 
 3. Enter the following so that the request reached mod_flickr
    handler.
