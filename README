@@ -43,10 +43,18 @@ Apache configuration (httpd.conf)
 	   (Keys can be obtained from: http://www.flickr.com/services/api/
 		Auth Mode: Mobile)
 
-	FlickrUser      <user>
-	FlickrKey       <user>	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-	FlickrSecret    <user>	xxxxxxxxxxxxxxx
-	FlickrAuth      <user>	xxxxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxx 
+	FlickrUser    	  <user>
+	FlickrKey     	  <user>	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+	FlickrSecret  	  <user>	xxxxxxxxxxxxxxx
+	FlickrAuth     	  <user>	xxxxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxx 
+	FlickrUserPrivacy <user>	Public			# for public photos.
+
+	2.c If you have the module copiled with caching enabled then
+		you need to give the server ip address where you have
+		memcached running.
+
+		FlickrCacheServers 192.168.1.2		# memcache server IP
+		FlickrCacheTimeout  vshankar 1d		# cache TTL
 
 3. Enter the following so that the request reached mod_flickr
    handler.
