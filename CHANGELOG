@@ -1,0 +1,14 @@
+Version 1.1
+------------
+* Option added to cache response via memcached.
+  API(s) that can be cached - getMyPhotos, getMySets, getPhotosInSet
+* User Privacy, cache timeout, Memcached server list are configuration
+  options.
+* New API to get photo comments: getPhotoComment
+
+Version 1.0
+------------
+### Initial Version ###
+* 4 API calls. - getMyPhotos, getMySets, getPhotosInSet, getRecentPhotos
+* Debugging option. (WITH_DEBUG="yes")
+	
