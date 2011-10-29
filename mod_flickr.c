@@ -23,7 +23,7 @@
  * mod_flickr
  * Apache module curl'ing flickr api's to
  * retrieve user's album etc..
- * 
+ *
  */
 
 /*
@@ -97,7 +97,7 @@ static char
  * memory pool.
  */
 
-static char 
+static char
 *flickr_dup_string(apr_pool_t *p, char *s)
 {
 	return apr_pstrdup(p, s);
@@ -117,7 +117,7 @@ static char
 #define	APIGET(h,k)		apr_hash_get(h, k,\
 					 			APR_HASH_KEY_STRING)
 /*
- * Duplicate string (key/value) and 
+ * Duplicate string (key/value) and
  * set it in the table.
  *
  * @args:
@@ -141,7 +141,7 @@ add_length(void *tbl, char *key, char *value)
 
 	t->args_len += strlen(key) + strlen(value);
 	t->nr_iterations++;
-	
+
 	return 1;
 }
 
@@ -243,7 +243,7 @@ flickr_memory_alloc(void *data, size_t size)
 }
 
 static size_t
-curl_process_chunk(void *remote_data, size_t sz, 
+curl_process_chunk(void *remote_data, size_t sz,
 									 size_t mems,
 									 void *data)
 {
@@ -352,7 +352,7 @@ static void
 *create_per_server_config(apr_pool_t *p, server_rec *s)
 {
 	user_cred *uc = apr_pcalloc(p, sizeof(user_cred));
-	
+
 	uc->on_off	= 0;		/* Off by default */
 	uc->user	= apr_hash_make(p);
 
@@ -422,7 +422,7 @@ static const command_rec module_cmds[] = {
 	AP_INIT_TAKE2("FlickrAuth", flickr_set_var,
 				(void *)APR_OFFSETOF(api_key_secret, auth_token),
 				RSRC_CONF, "Username and Auth token"),
-	{NULL} 
+	{NULL}
 };
 
 /*
@@ -471,7 +471,7 @@ static const command_rec module_cmds[] = {
 
 #define GETDATA(pg,a)	flickr_request_data(&pg->mem, a);
 #define DATA(pg)		pg->mem.api_response
-											
+
 
 /* ----------------------------------------------------------- */
 /*						API CALL ROUTINES					   */
@@ -482,7 +482,7 @@ static const command_rec module_cmds[] = {
 /* 2. Else call the param split routine to					   */
 /*	  get the individual params.							   */
 /* 3. Return one of the two flickr status					   */
-/*	  constants defined in flick.h							   */	
+/*	  constants defined in flick.h							   */
 /* ----------------------------------------------------------- */
 
 /*
@@ -498,7 +498,7 @@ flickr_get_my_photos(request_rec *r, page_data *pg)
 	char *xtra_params[2];
 	table_stat ts = {0,0};
 
-	apr_table_t *method_args = apr_table_make(r->pool, 5); 
+	apr_table_t *method_args = apr_table_make(r->pool, 5);
 
 	if (!flickr_get_xtra_params(r, pg, xtra_params, 2))
 		return FLICKR_STATUS_ERR;
@@ -546,7 +546,7 @@ flickr_get_my_sets(request_rec *r, page_data *pg)
 	char *api, *hash;
 	table_stat ts = {0,0};
 
-	apr_table_t *method_args = apr_table_make(r->pool, 1); 
+	apr_table_t *method_args = apr_table_make(r->pool, 1);
 
 	ATSD(r->pool,method_args,"method","flickr.photosets.getList");
 	GENHASHSTRING(r, pg, ts, method_args);
@@ -580,7 +580,7 @@ flickr_get_recent_photos(request_rec *r, page_data *pg)
 	char *xtra_params[2];
 	table_stat ts = {0,0};
 
-	apr_table_t *method_args = apr_table_make(r->pool, 3); 
+	apr_table_t *method_args = apr_table_make(r->pool, 3);
 
 	if (!flickr_get_xtra_params(r, pg, xtra_params, 2))
 		return FLICKR_STATUS_ERR;
@@ -620,7 +620,7 @@ flickr_get_photos_in_set(request_rec *r, page_data *pg)
 	char *xtra_params[3];
 	table_stat ts = {0,0};
 
-	apr_table_t *method_args = apr_table_make(r->pool, 5); 
+	apr_table_t *method_args = apr_table_make(r->pool, 5);
 
 	if (!flickr_get_xtra_params(r, pg, xtra_params, 3))
 		return FLICKR_STATUS_ERR;
@@ -716,7 +716,7 @@ flickr_child_init(apr_pool_t *pchild, server_rec *s)
 	svr_cfg = apr_pcalloc(pchild, sizeof(svr_constants));
 
 	svr_cfg->user_id 			= DUP(pchild, "user_id");
-	svr_cfg->who				= DUP(pchild, "me"); 
+	svr_cfg->who				= DUP(pchild, "me");
 
 	/* initialize the API call table. */
 	svr_cfg->api_call_table = apr_hash_make(pchild);

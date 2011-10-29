@@ -9,20 +9,20 @@
  * md5.c - MD5 Message Digest Algorithm
  *
  * Copyright (C) 2007-2008, David Beckett http://www.dajobe.org/
- * 
+ *
  * This file is licensed under the following three licenses as alternatives:
  *   1. GNU Lesser General Public License (LGPL) V2.1 or any newer version
  *   2. GNU General Public License (GPL) V2 or any newer version
  *   3. Apache License, V2.0 or any newer version
- * 
+ *
  * You may not use this file except in compliance with at least one of
  * the above three licenses.
- * 
+ *
  * See LICENSE.html or LICENSE.txt at the top of this package for the
  * complete terms and further detail along with the license texts for
  * the licenses in COPYING.LIB, COPYING and LICENSE-2.0.txt respectively.
- * 
- * 
+ *
+ *
  */
 
 
@@ -56,7 +56,7 @@ struct MD5Context {
 };
 
 static void MD5Init(struct MD5Context *context);
-static void MD5Update(struct MD5Context *context, 
+static void MD5Update(struct MD5Context *context,
                       const unsigned char *buf,
                       unsigned len);
 static void MD5Final(struct MD5Context *context);
@@ -114,19 +114,19 @@ static void MD5Update(struct MD5Context *ctx,
   u32 t;
 
   /* Update bitcount */
-  
+
   t = ctx->bits[0];
   if ((ctx->bits[0] = t + ((u32) len << 3)) < t)
     ctx->bits[1]++;		/* Carry from low to high */
   ctx->bits[1] += len >> 29;
-  
+
   t = (t >> 3) & 0x3f;	/* Bytes already in shsInfo->data */
-  
+
   /* Handle any leading odd-sized chunks */
-  
+
   if (t) {
     unsigned char *p = (unsigned char *) ctx->in + t;
-    
+
     t = 64 - t;
     if (len < t) {
       memcpy(p, buf, len);
@@ -150,12 +150,12 @@ static void MD5Update(struct MD5Context *ctx,
   }
 
   /* Handle any remaining bytes of data. */
-  
+
   memcpy(ctx->in, buf, len);
 }
 
 /*
- * Final wrapup - pad to 64-byte boundary with the bit pattern 
+ * Final wrapup - pad to 64-byte boundary with the bit pattern
  * 1 0* (64-bit count of bits processed, MSB-first)
  */
 
@@ -172,17 +172,17 @@ static void MD5Final(struct MD5Context *ctx)
      always at least one byte free */
   p = ctx->in + count;
   *p++ = 0x80;
-  
+
   /* Bytes of padding needed to make 64 bytes */
   count = 64 - 1 - count;
-  
+
   /* Pad out to 56 mod 64 */
   if (count < 8) {
     /* Two lots of padding:  Pad the first block to 64 bytes */
     memset(p, 0, count);
     byteReverse(ctx->in, 16);
     MD5Transform(ctx->buf, (u32 *) ctx->in);
-    
+
     /* Now fill the next block with 56 bytes */
     memset(ctx->in, 0, 56);
   } else {
@@ -190,11 +190,11 @@ static void MD5Final(struct MD5Context *ctx)
     memset(p, 0, count - 8);
   }
   byteReverse(ctx->in, 14);
-  
+
   /* Append length in bits and transform */
   ((u32 *) ctx->in)[14] = ctx->bits[0];
   ((u32 *) ctx->in)[15] = ctx->bits[1];
-  
+
   MD5Transform(ctx->buf, (u32 *) ctx->in);
   byteReverse((unsigned char *) ctx->buf, 4);
   memcpy(ctx->digest, ctx->buf, 16);
@@ -222,12 +222,12 @@ static void MD5Final(struct MD5Context *ctx)
 static void MD5Transform(u32 buf[4], u32 const in[16])
 {
   register u32 a, b, c, d;
-  
+
   a = buf[0];
   b = buf[1];
   c = buf[2];
   d = buf[3];
-  
+
   MD5STEP(F1, a, b, c, d, in[0] + 0xd76aa478, 7);
   MD5STEP(F1, d, a, b, c, in[1] + 0xe8c7b756, 12);
   MD5STEP(F1, c, d, a, b, in[2] + 0x242070db, 17);
@@ -244,7 +244,7 @@ static void MD5Transform(u32 buf[4], u32 const in[16])
   MD5STEP(F1, d, a, b, c, in[13] + 0xfd987193, 12);
   MD5STEP(F1, c, d, a, b, in[14] + 0xa679438e, 17);
   MD5STEP(F1, b, c, d, a, in[15] + 0x49b40821, 22);
-  
+
   MD5STEP(F2, a, b, c, d, in[1] + 0xf61e2562, 5);
   MD5STEP(F2, d, a, b, c, in[6] + 0xc040b340, 9);
   MD5STEP(F2, c, d, a, b, in[11] + 0x265e5a51, 14);
@@ -278,7 +278,7 @@ static void MD5Transform(u32 buf[4], u32 const in[16])
   MD5STEP(F3, d, a, b, c, in[12] + 0xe6db99e5, 11);
   MD5STEP(F3, c, d, a, b, in[15] + 0x1fa27cf8, 16);
   MD5STEP(F3, b, c, d, a, in[2] + 0xc4ac5665, 23);
-  
+
   MD5STEP(F4, a, b, c, d, in[0] + 0xf4292244, 6);
   MD5STEP(F4, d, a, b, c, in[7] + 0x432aff97, 10);
   MD5STEP(F4, c, d, a, b, in[14] + 0xab9423a7, 15);
@@ -295,7 +295,7 @@ static void MD5Transform(u32 buf[4], u32 const in[16])
   MD5STEP(F4, d, a, b, c, in[11] + 0xbd3af235, 10);
   MD5STEP(F4, c, d, a, b, in[2] + 0x2ad7d2bb, 15);
   MD5STEP(F4, b, c, d, a, in[9] + 0xeb86d391, 21);
-  
+
   buf[0] += a;
   buf[1] += b;
   buf[2] += c;
@@ -322,15 +322,15 @@ MD5_string(apr_pool_t *p, char *string)
   MD5Init(&md5);
   MD5Update(&md5, (const unsigned char*)string, len);
   MD5Final(&md5);
-  
+
 #define MD5_LEN 16
   b=(char*)apr_pcalloc(p, (1+(MD5_LEN<<1)));
   if(!b)
     return NULL;
-  
+
   for(i=0; i < MD5_LEN; i++)
     sprintf(b+(i<<1), "%02x", (unsigned int)md5.digest[i]);
   b[i<<1]='\0';
-  
+
   return b;
 }
