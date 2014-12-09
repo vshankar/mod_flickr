@@ -61,7 +61,7 @@ typedef struct {
 	char *page;
 	char *user;
 	char *api_call;
-	
+
 	/* curl fetched data */
 	mem_chunk mem;
 	char *raw_args;
@@ -70,7 +70,7 @@ typedef struct {
 	int iterations;
 
 	/* credentials of the user requested */
-	api_key_secret *creds;  
+	api_key_secret *creds;
 } page_data;
 
 

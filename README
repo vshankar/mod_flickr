@@ -46,7 +46,7 @@ Apache configuration (httpd.conf)
 	FlickrUser      <user>
 	FlickrKey       <user>	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 	FlickrSecret    <user>	xxxxxxxxxxxxxxx
-	FlickrAuth      <user>	xxxxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxx 
+	FlickrAuth      <user>	xxxxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxx
 
 3. Enter the following so that the request reached mod_flickr
    handler.
